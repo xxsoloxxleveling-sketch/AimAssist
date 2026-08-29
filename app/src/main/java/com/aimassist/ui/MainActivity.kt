@@ -3,6 +3,8 @@ package com.aimassist.ui
 import android.app.Activity
 import android.graphics.*
 import android.os.Bundle
+import android.provider.Settings
+import android.content.Intent
 import android.view.*
 import android.widget.*
 import android.graphics.drawable.GradientDrawable
@@ -34,7 +36,7 @@ class MainActivity : Activity() {
             }
         }
         val title = TextView(this).apply {
-            text = "AIMASSIST\n2D SCREEN OVERLAY"
+            text = "AIMASSIST"
             setTextColor(Color.WHITE)
             textSize = 15f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -44,7 +46,15 @@ class MainActivity : Activity() {
         val captureButton = Button(this).apply {
             text = "Start screen capture"
             isAllCaps = false
-            setOnClickListener { capture.request(this@MainActivity) }
+            setOnClickListener {
+                if (!Settings.canDrawOverlays(this@MainActivity)) {
+                    startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        android.net.Uri.parse("package:$packageName")))
+                    status.text = "Allow ‘Display over other apps’, then press capture again"
+                } else {
+                    capture.request(this@MainActivity)
+                }
+            }
         }
         val recalibrate = Button(this).apply {
             text = "Calibrate (4 taps)"
@@ -87,12 +97,27 @@ class MainActivity : Activity() {
     override fun onActivityResult(request:Int,result:Int,data:android.content.Intent?){super.onActivityResult(request,result,data);if(request==ScreenCaptureController.REQUEST_CODE&&result==RESULT_OK&&data!=null)capture.start(result,data){bmp->lastBitmap=bmp;process(bmp)}}
     private fun process(bitmap:Bitmap){frameCount++;if(corners.size<4){canvas.invalidate();updateStatus();return};if(!transformer.ready){transformer.setCorners(corners);updateStatus()};val source=Mat();Utils.bitmapToMat(bitmap,source);val warped=transformer.warp(source);balls=detector.detect(warped);warped.release();source.release();canvas.invalidate();updateStatus()}
     private fun updateStatus(){status.text=when{corners.size<4->"Tap table corners ${corners.size}/4";!transformer.ready->"Calibration ready";else->"LIVE  balls=${balls.size}  frames=$frameCount  screen capture"}}
-    override fun onDestroy(){capture.stop();super.onDestroy()}
+    override fun onDestroy(){super.onDestroy()}
 
     private inner class CaptureCanvas:View(this@MainActivity){
         private val paint=Paint(Paint.ANTI_ALIAS_FLAG);private var cueStart:PointF?=null;private var cueEnd:PointF?=null
         override fun onDraw(c: Canvas) {
-            val bitmap = lastBitmap ?: return
+            val bitmap = lastBitmap
+            if (bitmap == null) {
+                c.drawColor(Color.rgb(8, 13, 18))
+                paint.style = Paint.Style.FILL
+                paint.color = Color.WHITE
+                paint.textSize = 34f
+                paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
+                paint.textAlign = Paint.Align.CENTER
+                c.drawText("Ready for screen capture", width / 2f, height / 2f - 18f, paint)
+                paint.textSize = 20f
+                paint.typeface = android.graphics.Typeface.DEFAULT
+                paint.color = Color.rgb(170, 185, 198)
+                c.drawText("Start capture, choose your 2D pool app, then tap Next", width / 2f, height / 2f + 28f, paint)
+                paint.textAlign = Paint.Align.LEFT
+                return
+            }
             val scale = minOf(width.toFloat() / bitmap.width, height.toFloat() / bitmap.height)
             val offsetX = (width - bitmap.width * scale) / 2f
             val offsetY = (height - bitmap.height * scale) / 2f
