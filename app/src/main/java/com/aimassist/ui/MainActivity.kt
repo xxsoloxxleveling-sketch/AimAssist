@@ -24,11 +24,35 @@ class MainActivity : Activity() {
     override fun onCreate(state: Bundle?) { super.onCreate(state); OpenCVLoader.initLocal(); buildUi() }
     private fun buildUi() {
         val root=FrameLayout(this); canvas=CaptureCanvas(); root.addView(canvas,FrameLayout.LayoutParams(-1,-1))
-        val bar=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;setPadding(20,16,20,16);setBackgroundColor(0xcc101820)}
-        val captureButton=Button(this).apply{text="Start screen capture";setOnClickListener{capture.request(this@MainActivity)}}
-        val recalibrate=Button(this).apply{text="Calibrate (4 taps)";setOnClickListener{corners.clear();transformer.ready=false;canvas.invalidate();updateStatus()}}
-        status=TextView(this).apply{textColor=Color.WHITE;textSize=14f;text="Ready — capture the 2D app screen";setPadding(18,8,8,8)}
-        bar.addView(captureButton);bar.addView(recalibrate);bar.addView(status,LinearLayout.LayoutParams(0,-1,1f));root.addView(bar,FrameLayout.LayoutParams(-1,LinearLayout.LayoutParams.WRAP_CONTENT,Gravity.TOP));setContentView(root)
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(20, 16, 20, 16)
+            setBackgroundColor(0xcc101820.toInt())
+        }
+        val captureButton = Button(this).apply {
+            text = "Start screen capture"
+            setOnClickListener { capture.request(this@MainActivity) }
+        }
+        val recalibrate = Button(this).apply {
+            text = "Calibrate (4 taps)"
+            setOnClickListener {
+                corners.clear()
+                transformer.ready = false
+                canvas.invalidate()
+                updateStatus()
+            }
+        }
+        status = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            text = "Ready — capture the 2D app screen"
+            setPadding(18, 8, 8, 8)
+        }
+        bar.addView(captureButton)
+        bar.addView(recalibrate)
+        bar.addView(status, LinearLayout.LayoutParams(0, -1, 1f))
+        root.addView(bar, FrameLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP))
+        setContentView(root)
     }
     override fun onActivityResult(request:Int,result:Int,data:android.content.Intent?){super.onActivityResult(request,result,data);if(request==ScreenCaptureController.REQUEST_CODE&&result==RESULT_OK&&data!=null)capture.start(result,data){bmp->lastBitmap=bmp;process(bmp)}}
     private fun process(bitmap:Bitmap){frameCount++;if(corners.size<4){canvas.invalidate();updateStatus();return};if(!transformer.ready){transformer.setCorners(corners);updateStatus()};val source=Mat();Utils.bitmapToMat(bitmap,source);val warped=transformer.warp(source);balls=detector.detect(warped);warped.release();source.release();canvas.invalidate();updateStatus()}
@@ -37,7 +61,76 @@ class MainActivity : Activity() {
 
     private inner class CaptureCanvas:View(this@MainActivity){
         private val paint=Paint(Paint.ANTI_ALIAS_FLAG);private var cueStart:PointF?=null;private var cueEnd:PointF?=null
-        override fun onDraw(c:Canvas){val b=lastBitmap?:return;val scale=minOf(width.toFloat()/b.width,height.toFloat()/b.height);val ox=(width-b.width*scale)/2;val oy=(height-b.height*scale)/2;c.drawBitmap(b,null,RectF(ox,oy,ox+b.width*scale,oy+b.height*scale),paint);fun screen(p:Point2)=PointF(ox+p.x*scale,oy+p.y*scale);paint.style=Paint.Style.STROKE;paint.strokeWidth=4f;paint.color=Color.YELLOW;corners.forEach{val q=screen(it);c.drawCircle(q.x,q.y,14f,paint)};if(!transformer.ready)return;paint.color=Color.CYAN;corners.forEachIndexed{i,p->val q=screen(corners[(i+1)%4]);val a=screen(p);c.drawLine(a.x,a.y,q.x,q.y,paint)};balls.forEach{val q=screen(transformer.tableToCamera(Point2(it.x,it.y)));paint.color=Color.GREEN;c.drawCircle(q.x,q.y,it.radius/2f*scale,paint);paint.style=Paint.Style.FILL;c.drawCircle(q.x,q.y,4f,paint);paint.style=Paint.Style.STROKE)};val angle=cueStart?.let{a->cueEnd?.let{d->atan2(d.y-a.y,d.x-a.x)}};engine.calculate(balls,angle).forEach{g->val a=screen(transformer.tableToCamera(g.from));val z=screen(transformer.tableToCamera(g.to));paint.strokeWidth=5f;paint.color=if(g.kind==GuideLine.Kind.AIM)Color.WHITE else Color.MAGENTA;c.drawLine(a.x,a.y,z.x,z.y,paint)}}
-        override fun onTouchEvent(e:MotionEvent):Boolean{if(e.action==MotionEvent.ACTION_DOWN){if(corners.size<4){val b=lastBitmap?:return true;val s=minOf(width.toFloat()/b.width,height.toFloat()/b.height);corners+=Point2((e.x-(width-b.width*s)/2)/s,(e.y-(height-b.height*s)/2)/s);invalidate();updateStatus()}else cueStart=PointF(e.x,e.y);return true};if(e.action==MotionEvent.ACTION_MOVE&&cueStart!=null){cueEnd=PointF(e.x,e.y);invalidate();return true};if(e.action==MotionEvent.ACTION_UP&&cueStart!=null){cueEnd=PointF(e.x,e.y);invalidate();return true};return true}
+        override fun onDraw(c: Canvas) {
+            val bitmap = lastBitmap ?: return
+            val scale = minOf(width.toFloat() / bitmap.width, height.toFloat() / bitmap.height)
+            val offsetX = (width - bitmap.width * scale) / 2f
+            val offsetY = (height - bitmap.height * scale) / 2f
+            c.drawBitmap(bitmap, null, RectF(offsetX, offsetY,
+                offsetX + bitmap.width * scale, offsetY + bitmap.height * scale), paint)
+
+            fun screen(point: Point2) = PointF(offsetX + point.x * scale, offsetY + point.y * scale)
+
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 4f
+            paint.color = Color.YELLOW
+            corners.forEach { point ->
+                val screenPoint = screen(point)
+                c.drawCircle(screenPoint.x, screenPoint.y, 14f, paint)
+            }
+            if (!transformer.ready) return
+
+            paint.color = Color.CYAN
+            corners.forEachIndexed { index, point ->
+                val start = screen(point)
+                val end = screen(corners[(index + 1) % 4])
+                c.drawLine(start.x, start.y, end.x, end.y, paint)
+            }
+            balls.forEach { ball ->
+                val screenPoint = screen(transformer.tableToCamera(Point2(ball.x, ball.y)))
+                paint.color = Color.GREEN
+                c.drawCircle(screenPoint.x, screenPoint.y, ball.radius / 2f * scale, paint)
+                paint.style = Paint.Style.FILL
+                c.drawCircle(screenPoint.x, screenPoint.y, 4f, paint)
+                paint.style = Paint.Style.STROKE
+            }
+
+            val angle = cueStart?.let { start ->
+                cueEnd?.let { end -> atan2(end.y - start.y, end.x - start.x) }
+            }
+            engine.calculate(balls, angle).forEach { guide ->
+                val start = screen(transformer.tableToCamera(guide.from))
+                val end = screen(transformer.tableToCamera(guide.to))
+                paint.strokeWidth = 5f
+                paint.color = if (guide.kind == GuideLine.Kind.AIM) Color.WHITE else Color.MAGENTA
+                c.drawLine(start.x, start.y, end.x, end.y, paint)
+            }
+        }
+
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    if (corners.size < 4) {
+                        val bitmap = lastBitmap ?: return true
+                        val scale = minOf(width.toFloat() / bitmap.width, height.toFloat() / bitmap.height)
+                        corners += Point2(
+                            (event.x - (width - bitmap.width * scale) / 2f) / scale,
+                            (event.y - (height - bitmap.height * scale) / 2f) / scale
+                        )
+                        invalidate()
+                        updateStatus()
+                    } else {
+                        cueStart = PointF(event.x, event.y)
+                    }
+                }
+                MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP -> {
+                    if (cueStart != null) {
+                        cueEnd = PointF(event.x, event.y)
+                        invalidate()
+                    }
+                }
+            }
+            return true
+        }
     }
 }
