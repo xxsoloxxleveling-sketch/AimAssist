@@ -7,6 +7,7 @@ import android.graphics.*
 import android.provider.Settings
 import android.view.*
 import android.os.IBinder
+import android.os.SystemClock
 import com.aimassist.model.DetectedBall
 import com.aimassist.model.GuideLine
 import com.aimassist.model.Point2
@@ -116,6 +117,7 @@ class ScreenCaptureService : Service() {
         private var guides = emptyList<GuideLine>()
         private var message = "Waiting for calibration"
         private val selectedCorners = mutableListOf<Point2>()
+        private var acceptCalibrationTouchesAfter = 0L
 
         fun resetCalibration() {
             selectedCorners.clear()
@@ -123,6 +125,7 @@ class ScreenCaptureService : Service() {
             balls = emptyList()
             guides = emptyList()
             message = "TAP TABLE CORNER 1 / 4"
+            acceptCalibrationTouchesAfter = SystemClock.uptimeMillis() + 1200L
             invalidate()
         }
 
@@ -140,6 +143,7 @@ class ScreenCaptureService : Service() {
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
+            if (SystemClock.uptimeMillis() < acceptCalibrationTouchesAfter) return true
             if (event.action != MotionEvent.ACTION_UP || selectedCorners.size >= 4) return true
             selectedCorners += Point2(event.x, event.y)
             corners = selectedCorners.toList()

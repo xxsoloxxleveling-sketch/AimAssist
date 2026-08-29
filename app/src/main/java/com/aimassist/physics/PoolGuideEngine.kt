@@ -15,9 +15,15 @@ class PoolGuideEngine(private val width: Float = 2000f, private val height: Floa
         val lines = mutableListOf(GuideLine(Point2(cue.x,cue.y), end, GuideLine.Kind.AIM))
         val target = balls.asSequence()
             .filter { it != cue }
-            .map { ball -> ball to distanceAlong(cue.x, cue.y, ball.x, ball.y, dx, dy) }
-            .filter { (_, distance) -> distance > 0f }
-            .minByOrNull { (_, distance) -> distance }
+            .map { ball ->
+                val along = distanceAlong(cue.x, cue.y,ball.x,ball.y,dx,dy)
+                val perpendicular = abs((ball.x - cue.x) * dy - (ball.y - cue.y) * dx)
+                Triple(ball, along, perpendicular)
+            }
+            .filter { (ball, along, perpendicular) ->
+                along > 0f && perpendicular <= cue.radius + ball.radius + 12f
+            }
+            .minByOrNull { (_, along, _) -> along }
             ?.first
         if (target != null) lines += GuideLine(Point2(target.x,target.y), rayToRail(Point2(target.x,target.y), dx,dy), GuideLine.Kind.OBJECT)
         return lines

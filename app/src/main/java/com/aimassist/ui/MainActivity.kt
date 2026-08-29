@@ -8,6 +8,7 @@ import android.content.Intent
 import android.view.*
 import android.widget.*
 import android.graphics.drawable.GradientDrawable
+import android.util.Log
 import com.aimassist.model.*
 import com.aimassist.physics.PoolGuideEngine
 import com.aimassist.vision.*
@@ -121,21 +122,37 @@ class MainActivity : Activity() {
         Utils.bitmapToMat(bitmap, source)
         val warped = transformer.warp(source)
         balls = detector.detect(warped)
-        val cueBall = detector.findCueBall(warped, balls)
-        val target = cueBall?.let { cue ->
-            balls.filter { it != cue }.minByOrNull { ball -> hypot(ball.x - cue.x, ball.y - cue.y) }
+        val aimObservation = detector.findAimObservation(warped)
+        val cueBall = aimObservation?.cueBall ?: detector.findCueBall(warped, balls)
+        if (cueBall != null && balls.none { ball -> hypot(ball.x - cueBall.x, ball.y - cueBall.y) < cueBall.radius * 1.5f }) {
+            balls = balls + cueBall
         }
-        val autoAngle = if (cueBall != null && target != null) {
-            atan2(target.y - cueBall.y, target.x - cueBall.x)
-        } else null
-        val guides = engine.calculate(balls, autoAngle, cueBall).map { guide ->
-            GuideLine(transformer.tableToCamera(guide.from), transformer.tableToCamera(guide.to), guide.kind)
-        }
-        val cameraBalls = balls.map { ball ->
+        val aimAngle = aimObservation?.angle
+        val plausibleDetection = balls.size in 2..16
+        Log.d(
+            "AimAssistVision",
+            "candidates=${balls.size} aimTracked=${aimAngle != null} " +
+                balls.joinToString(prefix = "[", postfix = "]") { ball ->
+                    "%.0f,%.0f/r%.0f/c%.2f".format(ball.x, ball.y, ball.radius, ball.confidence)
+                }
+        )
+        val guides = if (plausibleDetection && cueBall != null && aimAngle != null) {
+            engine.calculate(balls, aimAngle, cueBall).map { guide ->
+                GuideLine(transformer.tableToCamera(guide.from), transformer.tableToCamera(guide.to), guide.kind)
+            }
+        } else emptyList()
+        val cameraBalls = if (plausibleDetection) balls.map { ball ->
             val center = transformer.tableToCamera(Point2(ball.x, ball.y))
             DetectedBall(center.x, center.y, ball.radius / 2f, ball.confidence)
+        } else emptyList()
+        val overlayStatus = if (!plausibleDetection) {
+            "SCANNING • ${balls.size} CANDIDATES"
+        } else if (aimAngle != null) {
+            "LIVE • ${balls.size} BALLS • AIM TRACKED"
+        } else {
+            "LIVE • ${balls.size} BALLS • MOVE AIM"
         }
-        ScreenCaptureService.showPrediction(corners, cameraBalls, guides, "LIVE • ${balls.size} BALLS • AUTO AIM")
+        ScreenCaptureService.showPrediction(corners, cameraBalls, guides, overlayStatus)
         warped.release(); source.release(); canvas.invalidate(); updateStatus()
     }
     private fun updateStatus(){status.text=when{corners.size<4->"Tap table corners ${corners.size}/4";!transformer.ready->"Calibration ready";else->"LIVE  balls=${balls.size}  frames=$frameCount  screen capture"}}
