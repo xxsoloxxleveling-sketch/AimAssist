@@ -24,6 +24,7 @@ class ScreenCaptureController(private val context: Context) {
     private var projection: MediaProjection? = null
     private var display: VirtualDisplay? = null
     private var reader: ImageReader? = null
+    private var projectionCallback: MediaProjection.Callback? = null
     private var bitmap: Bitmap? = null
     private var onFrame: ((Bitmap) -> Unit)? = null
     private var pendingResultCode: Int = 0
@@ -53,6 +54,16 @@ class ScreenCaptureController(private val context: Context) {
     private fun startProjection(resultCode: Int, data: Intent, callback: (Bitmap) -> Unit) {
         val manager = context.getSystemService(MediaProjectionManager::class.java)
         projection = manager.getMediaProjection(resultCode, data)
+        projectionCallback = object : MediaProjection.Callback() {
+            override fun onStop() {
+                display?.release()
+                display = null
+                reader?.close()
+                reader = null
+                projection = null
+            }
+        }
+        projection!!.registerCallback(projectionCallback!!, main)
         val metrics = DisplayMetrics(); @Suppress("DEPRECATION")
         (context.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager)
             .defaultDisplay.getRealMetrics(metrics)
@@ -78,7 +89,10 @@ class ScreenCaptureController(private val context: Context) {
     fun stop() {
         readyReceiver?.let { runCatching { context.unregisterReceiver(it) } }
         readyReceiver = null
-        display?.release(); display = null; reader?.close(); reader = null; projection?.stop(); projection = null
+        display?.release(); display = null; reader?.close(); reader = null
+        projectionCallback?.let { callback -> projection?.unregisterCallback(callback) }
+        projectionCallback = null
+        projection?.stop(); projection = null
         context.stopService(Intent(context, ScreenCaptureService::class.java))
     }
 }
