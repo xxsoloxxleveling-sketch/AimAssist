@@ -4,12 +4,21 @@ import com.aimassist.model.*
 import kotlin.math.*
 
 class PoolGuideEngine(private val width: Float = 2000f, private val height: Float = 1000f) {
-    fun calculate(balls: List<DetectedBall>, cueAngle: Float?): List<GuideLine> {
-        val cue = balls.minByOrNull { (it.x - width*.25f).pow(2) + (it.y-height*.5f).pow(2) } ?: return emptyList()
+    fun calculate(
+        balls: List<DetectedBall>,
+        cueAngle: Float?,
+        cueBall: DetectedBall? = null
+    ): List<GuideLine> {
+        val cue = cueBall ?: balls.minByOrNull { (it.x - width*.25f).pow(2) + (it.y-height*.5f).pow(2) } ?: return emptyList()
         val a = cueAngle ?: return emptyList(); val dx = cos(a); val dy = sin(a)
         val end = rayToRail(Point2(cue.x,cue.y), dx, dy)
         val lines = mutableListOf(GuideLine(Point2(cue.x,cue.y), end, GuideLine.Kind.AIM))
-        val target = balls.filter { it !== cue }.minByOrNull { distanceAlong(cue.x,cue.y,it.x,it.y,dx,dy) }
+        val target = balls.asSequence()
+            .filter { it != cue }
+            .map { ball -> ball to distanceAlong(cue.x, cue.y, ball.x, ball.y, dx, dy) }
+            .filter { (_, distance) -> distance > 0f }
+            .minByOrNull { (_, distance) -> distance }
+            ?.first
         if (target != null) lines += GuideLine(Point2(target.x,target.y), rayToRail(Point2(target.x,target.y), dx,dy), GuideLine.Kind.OBJECT)
         return lines
     }

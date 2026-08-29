@@ -15,6 +15,7 @@ import org.opencv.android.OpenCVLoader
 import org.opencv.android.Utils
 import org.opencv.core.Mat
 import kotlin.math.atan2
+import kotlin.math.hypot
 
 class MainActivity : Activity() {
     private lateinit var canvas: CaptureCanvas
@@ -24,7 +25,19 @@ class MainActivity : Activity() {
     private val corners = mutableListOf<Point2>(); private var balls = emptyList<DetectedBall>(); private var frameCount=0
     private var lastBitmap: Bitmap? = null; private lateinit var status: TextView
 
-    override fun onCreate(state: Bundle?) { super.onCreate(state); OpenCVLoader.initLocal(); buildUi() }
+    override fun onCreate(state: Bundle?) {
+        super.onCreate(state)
+        OpenCVLoader.initLocal()
+        ScreenCaptureService.setCalibrationListener { selectedCorners ->
+            runOnUiThread {
+                corners.clear()
+                corners.addAll(selectedCorners)
+                transformer.ready = false
+                updateStatus()
+            }
+        }
+        buildUi()
+    }
     private fun buildUi() {
         val root=FrameLayout(this); canvas=CaptureCanvas(); root.addView(canvas,FrameLayout.LayoutParams(-1,-1))
         val bar = LinearLayout(this).apply {
@@ -62,6 +75,7 @@ class MainActivity : Activity() {
             setOnClickListener {
                 corners.clear()
                 transformer.ready = false
+                ScreenCaptureService.beginCalibration()
                 canvas.invalidate()
                 updateStatus()
             }
@@ -73,6 +87,7 @@ class MainActivity : Activity() {
                 capture.stop()
                 lastBitmap = null
                 balls = emptyList()
+                ScreenCaptureService.showPrediction(emptyList(), emptyList(), emptyList(), "CAPTURE STOPPED")
                 canvas.invalidate()
                 status.text = "Capture stopped"
             }
@@ -95,9 +110,39 @@ class MainActivity : Activity() {
         setContentView(root)
     }
     override fun onActivityResult(request:Int,result:Int,data:android.content.Intent?){super.onActivityResult(request,result,data);if(request==ScreenCaptureController.REQUEST_CODE&&result==RESULT_OK&&data!=null)capture.start(result,data){bmp->lastBitmap=bmp;process(bmp)}}
-    private fun process(bitmap:Bitmap){frameCount++;if(corners.size<4){canvas.invalidate();updateStatus();return};if(!transformer.ready){transformer.setCorners(corners);updateStatus()};val source=Mat();Utils.bitmapToMat(bitmap,source);val warped=transformer.warp(source);balls=detector.detect(warped);warped.release();source.release();canvas.invalidate();updateStatus()}
+    private fun process(bitmap:Bitmap) {
+        frameCount++
+        if (corners.size < 4) {
+            ScreenCaptureService.showPrediction(corners, emptyList(), emptyList(), "CALIBRATE • ${corners.size} / 4 corners")
+            canvas.invalidate(); updateStatus(); return
+        }
+        if (!transformer.ready) transformer.setCorners(corners)
+        val source = Mat()
+        Utils.bitmapToMat(bitmap, source)
+        val warped = transformer.warp(source)
+        balls = detector.detect(warped)
+        val cueBall = detector.findCueBall(warped, balls)
+        val target = cueBall?.let { cue ->
+            balls.filter { it != cue }.minByOrNull { ball -> hypot(ball.x - cue.x, ball.y - cue.y) }
+        }
+        val autoAngle = if (cueBall != null && target != null) {
+            atan2(target.y - cueBall.y, target.x - cueBall.x)
+        } else null
+        val guides = engine.calculate(balls, autoAngle, cueBall).map { guide ->
+            GuideLine(transformer.tableToCamera(guide.from), transformer.tableToCamera(guide.to), guide.kind)
+        }
+        val cameraBalls = balls.map { ball ->
+            val center = transformer.tableToCamera(Point2(ball.x, ball.y))
+            DetectedBall(center.x, center.y, ball.radius / 2f, ball.confidence)
+        }
+        ScreenCaptureService.showPrediction(corners, cameraBalls, guides, "LIVE • ${balls.size} BALLS • AUTO AIM")
+        warped.release(); source.release(); canvas.invalidate(); updateStatus()
+    }
     private fun updateStatus(){status.text=when{corners.size<4->"Tap table corners ${corners.size}/4";!transformer.ready->"Calibration ready";else->"LIVE  balls=${balls.size}  frames=$frameCount  screen capture"}}
-    override fun onDestroy(){super.onDestroy()}
+    override fun onDestroy(){
+        ScreenCaptureService.setCalibrationListener(null)
+        super.onDestroy()
+    }
 
     private inner class CaptureCanvas:View(this@MainActivity){
         private val paint=Paint(Paint.ANTI_ALIAS_FLAG);private var cueStart:PointF?=null;private var cueEnd:PointF?=null
