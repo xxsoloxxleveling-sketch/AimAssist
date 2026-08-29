@@ -5,6 +5,7 @@ import android.graphics.*
 import android.os.Bundle
 import android.view.*
 import android.widget.*
+import android.graphics.drawable.GradientDrawable
 import com.aimassist.model.*
 import com.aimassist.physics.PoolGuideEngine
 import com.aimassist.vision.*
@@ -26,15 +27,28 @@ class MainActivity : Activity() {
         val root=FrameLayout(this); canvas=CaptureCanvas(); root.addView(canvas,FrameLayout.LayoutParams(-1,-1))
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(20, 16, 20, 16)
-            setBackgroundColor(0xcc101820.toInt())
+            setPadding(22, 14, 22, 14)
+            background = GradientDrawable().apply {
+                setColor(0xf216202b.toInt())
+                cornerRadius = 18f
+            }
+        }
+        val title = TextView(this).apply {
+            text = "AIMASSIST\n2D SCREEN OVERLAY"
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 24, 0)
         }
         val captureButton = Button(this).apply {
             text = "Start screen capture"
+            isAllCaps = false
             setOnClickListener { capture.request(this@MainActivity) }
         }
         val recalibrate = Button(this).apply {
             text = "Calibrate (4 taps)"
+            isAllCaps = false
             setOnClickListener {
                 corners.clear()
                 transformer.ready = false
@@ -42,16 +56,32 @@ class MainActivity : Activity() {
                 updateStatus()
             }
         }
+        val stopButton = Button(this).apply {
+            text = "Stop"
+            isAllCaps = false
+            setOnClickListener {
+                capture.stop()
+                lastBitmap = null
+                balls = emptyList()
+                canvas.invalidate()
+                status.text = "Capture stopped"
+            }
+        }
         status = TextView(this).apply {
             setTextColor(Color.WHITE)
             textSize = 14f
-            text = "Ready — capture the 2D app screen"
+            text = "Ready · capture the 2D app screen"
+            gravity = Gravity.CENTER_VERTICAL
             setPadding(18, 8, 8, 8)
         }
+        bar.addView(title, LinearLayout.LayoutParams(150, -1))
         bar.addView(captureButton)
         bar.addView(recalibrate)
+        bar.addView(stopButton)
         bar.addView(status, LinearLayout.LayoutParams(0, -1, 1f))
-        root.addView(bar, FrameLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP))
+        val barParams = FrameLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP)
+        barParams.setMargins(16, 16, 16, 0)
+        root.addView(bar, barParams)
         setContentView(root)
     }
     override fun onActivityResult(request:Int,result:Int,data:android.content.Intent?){super.onActivityResult(request,result,data);if(request==ScreenCaptureController.REQUEST_CODE&&result==RESULT_OK&&data!=null)capture.start(result,data){bmp->lastBitmap=bmp;process(bmp)}}

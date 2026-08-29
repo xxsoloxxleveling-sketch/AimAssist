@@ -11,6 +11,9 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Handler
 import android.os.Looper
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 import android.util.DisplayMetrics
 import java.nio.ByteBuffer
 
@@ -23,6 +26,9 @@ class ScreenCaptureController(private val context: Context) {
     private var reader: ImageReader? = null
     private var bitmap: Bitmap? = null
     private var onFrame: ((Bitmap) -> Unit)? = null
+    private var pendingResultCode: Int = 0
+    private var pendingData: Intent? = null
+    private var readyReceiver: BroadcastReceiver? = null
 
     fun request(activity: Activity) {
         val manager = context.getSystemService(MediaProjectionManager::class.java)
@@ -30,7 +36,21 @@ class ScreenCaptureController(private val context: Context) {
     }
 
     fun start(resultCode: Int, data: Intent, callback: (Bitmap) -> Unit) {
-        stop(); onFrame = callback
+        stop(); onFrame = callback; pendingResultCode = resultCode; pendingData = data
+        readyReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action == ScreenCaptureService.ACTION_READY) {
+                    context.unregisterReceiver(this)
+                    readyReceiver = null
+                    startProjection(pendingResultCode, pendingData!!, callback)
+                }
+            }
+        }
+        ContextCompat.registerReceiver(context, readyReceiver, IntentFilter(ScreenCaptureService.ACTION_READY), ContextCompat.RECEIVER_NOT_EXPORTED)
+        ContextCompat.startForegroundService(context, Intent(context, ScreenCaptureService::class.java))
+    }
+
+    private fun startProjection(resultCode: Int, data: Intent, callback: (Bitmap) -> Unit) {
         val manager = context.getSystemService(MediaProjectionManager::class.java)
         projection = manager.getMediaProjection(resultCode, data)
         val metrics = DisplayMetrics(); @Suppress("DEPRECATION")
@@ -55,5 +75,10 @@ class ScreenCaptureController(private val context: Context) {
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader!!.surface, null, main)
     }
 
-    fun stop() { display?.release(); display = null; reader?.close(); reader = null; projection?.stop(); projection = null }
+    fun stop() {
+        readyReceiver?.let { runCatching { context.unregisterReceiver(it) } }
+        readyReceiver = null
+        display?.release(); display = null; reader?.close(); reader = null; projection?.stop(); projection = null
+        context.stopService(Intent(context, ScreenCaptureService::class.java))
+    }
 }
