@@ -1,0 +1,21 @@
+# Gradle / build output
+.gradle/
+build/
+app/build/
+captures/
+.cxx/
+
+# Local machine config — points at this machine's Android SDK, must not be committed
+local.properties
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Keystores
+*.jks
+*.keystore
+
+# Debug artifacts written by the app's "save debug frame" feature when pulled off-device
+/debug-frames/
